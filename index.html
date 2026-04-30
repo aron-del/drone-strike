@@ -449,7 +449,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
-renderer.setClearColor(0x0a1525);
+renderer.setClearColor(0x6b5a3e);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -459,17 +459,25 @@ window.addEventListener('resize', () => {
 
 // ── Scene ─────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0a1525, 0.0028);
+scene.fog = new THREE.FogExp2(0x8a7355, 0.0035); // 황사/먼지 안개
 
-// Sky gradient background
+// Sky: 전쟁터 황혼 하늘
 (function() {
   const c2 = document.createElement('canvas');
   c2.width = 256; c2.height = 512;
   const ctx = c2.getContext('2d');
   const g = ctx.createLinearGradient(0,0,0,512);
-  g.addColorStop(0, '#070c18'); g.addColorStop(0.5, '#0d1a2f');
-  g.addColorStop(0.8, '#1a2b45'); g.addColorStop(1, '#273548');
+  g.addColorStop(0,   '#1a1208');  // 짙은 갈색 상단
+  g.addColorStop(0.3, '#3d2e18');  // 황토
+  g.addColorStop(0.6, '#6b5030');  // 황사
+  g.addColorStop(0.85,'#8a6840');  // 지평선
+  g.addColorStop(1,   '#a07845');  // 연기
   ctx.fillStyle = g; ctx.fillRect(0,0,256,512);
+  // 연기 구름 몇 개
+  ctx.fillStyle = 'rgba(60,45,25,0.35)';
+  [[60,120,90,35],[150,180,110,28],[40,280,130,40],[180,320,80,22]].forEach(([x,y,rw,rh])=>{
+    ctx.beginPath(); ctx.ellipse(x,y,rw,rh,0,0,Math.PI*2); ctx.fill();
+  });
   scene.background = new THREE.CanvasTexture(c2);
 })();
 
@@ -489,277 +497,273 @@ const CAMERA_CFG = {
 };
 
 // ── Lighting ──────────────────────────────────────
-scene.add(new THREE.HemisphereLight(0x9ba29a, 0x4e5660, 0.7));
-scene.add(new THREE.AmbientLight(0x6677aa, 0.6));
+scene.add(new THREE.HemisphereLight(0xc8a870, 0x3a2a10, 0.9));
+scene.add(new THREE.AmbientLight(0x8a6a30, 0.7));
 
-const sun = new THREE.DirectionalLight(0xffeedd, 0.9);
-sun.position.set(50, 100, 50);
+const sun = new THREE.DirectionalLight(0xffa040, 1.1);
+sun.position.set(-80, 60, 30);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);   // 2048→1024 (성능 4배)
+sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 800;
 sun.shadow.camera.left = sun.shadow.camera.bottom = -300;
 sun.shadow.camera.right = sun.shadow.camera.top = 300;
 sun.shadow.bias = -0.00015;
 scene.add(sun);
 
-scene.add(new THREE.PointLight(0x4466aa, 0.8, 500));
-const rimLight = new THREE.PointLight(0xffffff, 0.9, 80);
+const rimLight = new THREE.PointLight(0xffc060, 0.7, 80);
 scene.add(rimLight);
 
 // ── World ─────────────────────────────────────────
 const GROUND_SIZE = MAP_BOUND * 2;
 
-// Ground
+// ── 산악 지형 ──────────────────────────────────────
 (function() {
-  const geo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 60, 60);
+  const seg = 80;
+  const geo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, seg, seg);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    pos.setY(i, (Math.sin(x*0.04)*Math.cos(z*0.035) + Math.sin(x*0.1+1)*0.3) * 0.5);
+    // 다층 노이즈로 산악 지형
+    const h =
+      Math.sin(x*0.008)*Math.cos(z*0.007)*18 +       // 큰 산
+      Math.sin(x*0.02+1.2)*Math.sin(z*0.018)*9 +      // 중간 언덕
+      Math.sin(x*0.06+2)*Math.cos(z*0.055+1)*3 +      // 작은 굴곡
+      Math.sin(x*0.15)*Math.cos(z*0.14)*1.2;          // 세부 질감
+    // 중앙 마을 지역은 평탄하게
+    const distCenter = Math.sqrt(x*x+z*z);
+    const flatFactor = Math.max(0, 1 - distCenter/120);
+    pos.setY(i, h * (1-flatFactor*0.85));
   }
   geo.computeVertexNormals();
-  const mat = new THREE.MeshLambertMaterial({ color: 0x1a1a0e });
+
+  // 지형 색상: 먼지/건토 색
+  const mat = new THREE.MeshLambertMaterial({ color: 0x7a6040 });
   const m = new THREE.Mesh(geo, mat);
   m.rotation.x = -Math.PI/2; m.receiveShadow = true;
   scene.add(m);
 
-  // Grid
-  const grid = new THREE.GridHelper(GROUND_SIZE, 60, 0x00ff66, 0x002211);
-  grid.material.opacity = 0.1; grid.material.transparent = true;
-  grid.position.y = 0.05;
-  scene.add(grid);
-
-  // ── Road network ──
-  const roadMat = new THREE.MeshLambertMaterial({ color: 0x222018 });
-  const roadMarkMat = new THREE.MeshLambertMaterial({ color: 0xeeee88, transparent:true, opacity:.7 });
-  const sidewalkMat = new THREE.MeshLambertMaterial({ color: 0x2e2c24 });
-
-  // Main cross roads
-  const mainRoads = [
-    [0,0,14,GROUND_SIZE], [0,0,GROUND_SIZE,14],  // center cross
-    [220,0,10,GROUND_SIZE],[-220,0,10,GROUND_SIZE], // parallels
-    [0,220,GROUND_SIZE,10],[0,-220,GROUND_SIZE,10],
-    [110,0,7,GROUND_SIZE*.6],[-110,0,7,GROUND_SIZE*.6],
-    [0,110,GROUND_SIZE*.6,7],[0,-110,GROUND_SIZE*.6,7],
-  ];
-  mainRoads.forEach(([x,z,rw,rd])=>{
-    const rm = new THREE.Mesh(new THREE.PlaneGeometry(rw,rd), roadMat);
-    rm.rotation.x=-Math.PI/2; rm.position.set(x,0.06,z); rm.receiveShadow=true; scene.add(rm);
-    // Sidewalk edges
-    if(rw>rd){ // horizontal
-      [rd/2+1,-rd/2-1].forEach(oz=>{
-        const sw=new THREE.Mesh(new THREE.PlaneGeometry(rw,2),sidewalkMat);
-        sw.rotation.x=-Math.PI/2; sw.position.set(x,0.07,z+oz); scene.add(sw);
-      });
-    } else {
-      [rw/2+1,-rw/2-1].forEach(ox=>{
-        const sw=new THREE.Mesh(new THREE.PlaneGeometry(2,rd),sidewalkMat);
-        sw.rotation.x=-Math.PI/2; sw.position.set(x+ox,0.07,z); scene.add(sw);
-      });
-    }
-  });
-  // Center line dashes
-  for(let i=-580;i<580;i+=20){
-    const dl=new THREE.Mesh(new THREE.PlaneGeometry(8,1.2),roadMarkMat);
-    dl.rotation.x=-Math.PI/2; dl.position.set(i,0.08,0); scene.add(dl);
-    const dl2=new THREE.Mesh(new THREE.PlaneGeometry(1.2,8),roadMarkMat);
-    dl2.rotation.x=-Math.PI/2; dl2.position.set(0,0.08,i); scene.add(dl2);
+  // 바위 패치 (어두운 구역)
+  const rockMat = new THREE.MeshLambertMaterial({ color: 0x4a3828 });
+  for(let i=0;i<40;i++){
+    const rx=(Math.random()-.5)*GROUND_SIZE*.85, rz=(Math.random()-.5)*GROUND_SIZE*.85;
+    const rr=8+Math.random()*25;
+    const rc=new THREE.Mesh(new THREE.CircleGeometry(rr,8),rockMat);
+    rc.rotation.x=-Math.PI/2; rc.position.set(rx,.05,rz); scene.add(rc);
   }
 
-  // Craters
-  for (let i=0;i<28;i++) {
-    const cx=(Math.random()-.5)*GROUND_SIZE*.9, cz=(Math.random()-.5)*GROUND_SIZE*.9;
-    const cr=2+Math.random()*5;
-    const cm=new THREE.Mesh(new THREE.CircleGeometry(cr,10),new THREE.MeshLambertMaterial({color:0x0d0d08}));
-    cm.rotation.x=-Math.PI/2; cm.position.set(cx,0.08,cz); scene.add(cm);
-    // Crater rim
-    const rim=new THREE.Mesh(new THREE.TorusGeometry(cr,.4,4,12),new THREE.MeshLambertMaterial({color:0x1a1a0e}));
-    rim.rotation.x=-Math.PI/2; rim.position.set(cx,.1,cz); scene.add(rim);
+  // 흙길 (좁고 구불구불)
+  const dirtMat = new THREE.MeshLambertMaterial({ color: 0x5a4830 });
+  // 메인 비포장도로 2개
+  for(let t=0;t<GROUND_SIZE;t+=14){
+    const tx = t - GROUND_SIZE/2;
+    const wob = Math.sin(tx*0.015)*30;
+    const rm=new THREE.Mesh(new THREE.PlaneGeometry(7,14),dirtMat);
+    rm.rotation.x=-Math.PI/2; rm.position.set(tx,.08,wob); scene.add(rm);
+    const rm2=new THREE.Mesh(new THREE.PlaneGeometry(14,7),dirtMat);
+    rm2.rotation.x=-Math.PI/2; rm2.position.set(wob,.08,tx); scene.add(rm2);
+  }
+
+  // 포탄 크레이터 많이
+  const craterMat = new THREE.MeshLambertMaterial({ color: 0x2a1e10 });
+  const rimMat   = new THREE.MeshLambertMaterial({ color: 0x5a4020 });
+  for(let i=0;i<55;i++){
+    const cx=(Math.random()-.5)*GROUND_SIZE*.95, cz=(Math.random()-.5)*GROUND_SIZE*.95;
+    const cr=1.5+Math.random()*6;
+    const cm=new THREE.Mesh(new THREE.CircleGeometry(cr,8),craterMat);
+    cm.rotation.x=-Math.PI/2; cm.position.set(cx,.09,cz); scene.add(cm);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(cr,.5,3,10),rimMat);
+    rim.rotation.x=-Math.PI/2; rim.position.set(cx,.15,cz); scene.add(rim);
+  }
+
+  // 불탄 흔적
+  const burnMat = new THREE.MeshLambertMaterial({ color: 0x111008, transparent:true, opacity:.7 });
+  for(let i=0;i<30;i++){
+    const bx=(Math.random()-.5)*GROUND_SIZE*.9, bz=(Math.random()-.5)*GROUND_SIZE*.9;
+    const br=3+Math.random()*12;
+    const bm=new THREE.Mesh(new THREE.CircleGeometry(br,7),burnMat);
+    bm.rotation.x=-Math.PI/2; bm.position.set(bx,.1,bz); scene.add(bm);
   }
 })();
 
-// ── City blocks / buildings ────────────────────
+// ── 바위/암석 ──────────────────────────────────────
 const buildingCollisionBoxes = [];
+for(let i=0;i<60;i++){
+  const rx=(Math.random()-.5)*GROUND_SIZE*.9, rz=(Math.random()-.5)*GROUND_SIZE*.9;
+  if(Math.hypot(rx,rz)<30) { i--; continue; }
+  const rw=3+Math.random()*10, rh=2+Math.random()*8, rd=3+Math.random()*10;
+  const col=[0x4a3828,0x3a2e1e,0x5a4a38][Math.floor(Math.random()*3)];
+  const rm=new THREE.Mesh(new THREE.BoxGeometry(rw,rh,rd),new THREE.MeshLambertMaterial({color:col}));
+  rm.position.set(rx,rh/2,rz);
+  rm.rotation.y=Math.random()*Math.PI;
+  rm.castShadow=true; rm.receiveShadow=true; scene.add(rm);
+  buildingCollisionBoxes.push(new THREE.Box3().setFromObject(rm));
+}
 
-// City block zones (predefined areas)
-const CITY_ZONES = [
-  { cx:160,  cz:160,  n:12, style:'urban' },
-  { cx:-160, cz:160,  n:10, style:'urban' },
-  { cx:160,  cz:-160, n:10, style:'ruins' },
-  { cx:-160, cz:-160, n:12, style:'urban' },
-  { cx:320,  cz:0,    n:8,  style:'industrial' },
-  { cx:-320, cz:0,    n:8,  style:'industrial' },
-  { cx:0,    cz:320,  n:8,  style:'ruins' },
-  { cx:0,    cz:-320, n:8,  style:'urban' },
-  { cx:320,  cz:320,  n:6,  style:'industrial' },
-  { cx:-320, cz:-320, n:6,  style:'ruins' },
-  { cx:320,  cz:-320, n:5,  style:'ruins' },
-  { cx:-320, cz:320,  n:5,  style:'urban' },
-];
+// ── 낡은 전쟁터 건물 ───────────────────────────────
+// 건물 색상: 모래/황토/콘크리트
+const WAR_COLORS = [0x8a7050, 0x7a6040, 0x6a5535, 0x9a8060, 0x5a4828];
 
-const STYLE_COLORS = {
-  urban:      [0x4a4035, 0x3a3228, 0x5a4a3a],
-  ruins:      [0x2a2018, 0x1e1810, 0x352820],
-  industrial: [0x3a3a3a, 0x2a2a28, 0x484838],
-};
+function spawnWarbuildng(bx, bz) {
+  const bw=6+Math.random()*12, bh=2.5+Math.random()*5, bd=6+Math.random()*12;
+  const col=WAR_COLORS[Math.floor(Math.random()*WAR_COLORS.length)];
+  const isDmg=Math.random()>.4;
+  const actualH=bh*(isDmg?0.5+Math.random()*0.4:1);
 
-function spawnBuilding(bx, bz, style) {
-  const colors = STYLE_COLORS[style] || STYLE_COLORS.urban;
-  const isDmg = style==='ruins' || Math.random()>.55;
-  const bw = 10+Math.random()*25, bh = (isDmg?5:14)+Math.random()*(isDmg?18:46), bd = 10+Math.random()*25;
-  const actualH = bh*(isDmg?.45:1);
-  const col = colors[Math.floor(Math.random()*colors.length)];
-  const bm = new THREE.Mesh(new THREE.BoxGeometry(bw,actualH,bd), new THREE.MeshLambertMaterial({color:col}));
-  bm.position.set(bx, actualH/2, bz);
+  // 벽 (BoxGeometry)
+  const bm=new THREE.Mesh(new THREE.BoxGeometry(bw,actualH,bd),new THREE.MeshLambertMaterial({color:col}));
+  bm.position.set(bx,actualH/2,bz);
   bm.castShadow=true; bm.receiveShadow=true; scene.add(bm);
   buildingCollisionBoxes.push(new THREE.Box3().setFromObject(bm));
-  if (style==='industrial' && !isDmg) {
-    for(let c=0;c<2;c++) {
-      const ch = new THREE.Mesh(new THREE.CylinderGeometry(.8,1.0,bh*.35,8), new THREE.MeshLambertMaterial({color:0x222222}));
-      ch.position.set(bx+(Math.random()-.5)*bw*.4, actualH+bh*.175, bz+(Math.random()-.5)*bd*.4);
-      ch.castShadow=true; scene.add(ch);
-    }
-  }
-  if (isDmg) {
-    const rb = new THREE.Mesh(new THREE.BoxGeometry(bw*.8,1.2,bd*.8), new THREE.MeshLambertMaterial({color:0x1a1510}));
-    rb.position.set(bx+(Math.random()-.5)*2, .6, bz+(Math.random()-.5)*2);
-    scene.add(rb);
-  }
-  if (style==='urban' && !isDmg && actualH>10) {
-    const wMat = new THREE.MeshBasicMaterial({color:0xffee88, transparent:true, opacity:.65});
-    for(let wy=4; wy<actualH-3; wy+=4) {
-      for(let wx2=-bw/2+3; wx2<bw/2-2; wx2+=4) {
-        if(Math.random()>.35) {
-          const win=new THREE.Mesh(new THREE.PlaneGeometry(1.6,2.4),wMat);
-          win.position.set(bx+wx2, wy, bz+bd/2+.06); scene.add(win);
-          const win2=new THREE.Mesh(new THREE.PlaneGeometry(1.6,2.4),wMat);
-          win2.position.set(bx+wx2, wy, bz-bd/2-.06); win2.rotation.y=Math.PI; scene.add(win2);
-        }
-      }
-    }
-  }
-}
 
-// ── Landmark skyscrapers ──────────────────────────
-function spawnSkyscraper(bx, bz) {
-  const w=18+Math.random()*14, h=60+Math.random()*60, d=18+Math.random()*14;
-  const col=[0x5a5548,0x3a4850,0x484040,0x505840][Math.floor(Math.random()*4)];
-  const bm=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshLambertMaterial({color:col}));
-  bm.position.set(bx,h/2,bz); bm.castShadow=true; bm.receiveShadow=true; scene.add(bm);
-  buildingCollisionBoxes.push(new THREE.Box3().setFromObject(bm));
-  const bm2=new THREE.Mesh(new THREE.BoxGeometry(w*.6,h*.28,d*.6),new THREE.MeshLambertMaterial({color:col}));
-  bm2.position.set(bx,h+h*.14,bz); bm2.castShadow=true; scene.add(bm2);
-  const sp=new THREE.Mesh(new THREE.CylinderGeometry(.25,1.0,h*.22,6),new THREE.MeshLambertMaterial({color:0x333333}));
-  sp.position.set(bx,h*1.33,bz); scene.add(sp);
-  const wMat=new THREE.MeshBasicMaterial({color:0xffee88,transparent:true,opacity:.6});
-  for(let wy=5;wy<h-3;wy+=4.5) {
-    for(let wx2=-w/2+3;wx2<w/2-2;wx2+=4) {
-      if(Math.random()>.4){
-        const win=new THREE.Mesh(new THREE.PlaneGeometry(1.8,2.6),wMat);
-        win.position.set(bx+wx2,wy,bz+d/2+.06); scene.add(win);
-        const win2=new THREE.Mesh(new THREE.PlaneGeometry(1.8,2.6),wMat);
-        win2.position.set(bx+wx2,wy,bz-d/2-.06); win2.rotation.y=Math.PI; scene.add(win2);
-      }
+  // 파손된 지붕 (일부만)
+  if(!isDmg && Math.random()>.5){
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(bw+.4,.4,bd+.4),new THREE.MeshLambertMaterial({color:0x4a3820}));
+    roof.position.set(bx,actualH+.2,bz); roof.castShadow=true; scene.add(roof);
+  }
+
+  // 잔해 더미
+  if(isDmg){
+    for(let d=0;d<3;d++){
+      const dw=1+Math.random()*3, dh=0.3+Math.random()*1.2;
+      const dm=new THREE.Mesh(new THREE.BoxGeometry(dw,dh,dw),new THREE.MeshLambertMaterial({color:col}));
+      dm.position.set(bx+(Math.random()-.5)*bw*.8, dh/2, bz+(Math.random()-.5)*bd*.8);
+      dm.rotation.y=Math.random()*Math.PI; scene.add(dm);
+    }
+  }
+
+  // 모래주머니 바리케이드
+  if(Math.random()>.6){
+    const sbMat=new THREE.MeshLambertMaterial({color:0x8a7040});
+    for(let s=0;s<4;s++){
+      const sb=new THREE.Mesh(new THREE.BoxGeometry(1.4,.6,.7),sbMat);
+      sb.position.set(bx+(Math.random()-.5)*(bw+2), .3, bz+bd/2+.5+(Math.random()-.5)*2);
+      sb.rotation.y=(Math.random()-.5)*.4; scene.add(sb);
     }
   }
 }
 
-[[160,160],[-160,160],[160,-160],[-160,-160],[280,0],[-280,0],[0,280],[0,-280],[320,320],[-320,-320]].forEach(([cx,cz])=>{
-  spawnSkyscraper(cx+(Math.random()-.5)*25, cz+(Math.random()-.5)*25);
-});
-
-CITY_ZONES.forEach(({cx,cz,n,style})=>{
-  for(let i=0;i<n;i++){
-    const ang=Math.random()*Math.PI*2, r=20+Math.random()*60;
-    const bx=cx+Math.cos(ang)*r, bz2=cz+Math.sin(ang)*r;
-    if(Math.abs(bx)<16||Math.abs(bz2)<16) continue;
-    spawnBuilding(bx, bz2, style);
-  }
-});
-// Scattered singles
-for(let i=0;i<20;i++){
-  const bx=(Math.random()-.5)*GROUND_SIZE*.8, bz=(Math.random()-.5)*GROUND_SIZE*.8;
-  if(Math.abs(bx)<16||Math.abs(bz)<16){ i--; continue; }
-  spawnBuilding(bx, bz, Math.random()>.5?'ruins':'urban');
-}
-
-// Walls / barriers
-for(let i=0;i<25;i++){
-  const wx=(Math.random()-.5)*GROUND_SIZE*.7, wz=(Math.random()-.5)*GROUND_SIZE*.7;
-  const wl=8+Math.random()*20, wh=1.5+Math.random()*2;
-  const wm=new THREE.Mesh(new THREE.BoxGeometry(wl,wh,.6),new THREE.MeshLambertMaterial({color:0x2a2218}));
-  wm.position.set(wx,wh/2,wz); wm.rotation.y=Math.random()*Math.PI;
-  wm.castShadow=true; scene.add(wm);
-}
-
-// Trees — 3 types: conifer, broadleaf, dead
-const TREE_CLUSTERS = [
-  { cx:  150, cz:  200, n:18 }, { cx: -200, cz:  150, n:22 },
-  { cx:  280, cz: -180, n:15 }, { cx: -150, cz: -250, n:20 },
-  { cx:   80, cz:  350, n:12 }, { cx: -320, cz:   80, n:16 },
-  { cx:  400, cz:  100, n:14 }, { cx: -100, cz: -400, n:18 },
-  { cx:  250, cz: -350, n:10 }, { cx: -380, cz:  300, n:14 },
+// 마을 구역들 (낮은 건물)
+const VILLAGE_ZONES = [
+  [80,80,8],[-80,80,6],[80,-80,7],[-80,-80,8],
+  [200,50,5],[-200,50,5],[50,200,6],[50,-200,5],
+  [160,-180,4],[-160,180,4],[250,250,5],[-250,-250,5],
+  [300,-100,4],[-300,100,4],[0,300,6],[0,-300,6],
 ];
-function plantTree(tx, tz) {
+VILLAGE_ZONES.forEach(([cx,cz,n])=>{
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2, r=15+Math.random()*35;
+    const bx=cx+Math.cos(ang)*r, bz2=cz+Math.sin(ang)*r;
+    spawnWarbuildng(bx, bz2);
+  }
+});
+
+// 산개 단독 건물
+for(let i=0;i<25;i++){
+  const bx=(Math.random()-.5)*GROUND_SIZE*.8, bz=(Math.random()-.5)*GROUND_SIZE*.8;
+  if(Math.hypot(bx,bz)<20){i--;continue;}
+  spawnWarbuildng(bx,bz);
+}
+
+// ── 참호/방어선 ────────────────────────────────────
+const trenchMat=new THREE.MeshLambertMaterial({color:0x4a3518});
+for(let i=0;i<18;i++){
+  const tx=(Math.random()-.5)*GROUND_SIZE*.7, tz=(Math.random()-.5)*GROUND_SIZE*.7;
+  const tl=12+Math.random()*30, ang=Math.random()*Math.PI;
+  // 참호 (낮은 박스들로 표현)
+  for(let s=0;s<Math.round(tl/4);s++){
+    const sx=tx+Math.cos(ang)*s*4, sz=tz+Math.sin(ang)*s*4;
+    const sb=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.5,.8),trenchMat);
+    sb.position.set(sx,.75,sz); sb.rotation.y=ang+(Math.random()-.5)*.3; scene.add(sb);
+  }
+}
+
+// ── 철조망 ─────────────────────────────────────────
+const wireMat=new THREE.MeshBasicMaterial({color:0x666644});
+for(let i=0;i<30;i++){
+  const wx=(Math.random()-.5)*GROUND_SIZE*.75, wz=(Math.random()-.5)*GROUND_SIZE*.75;
+  const wl=6+Math.random()*16, wAng=Math.random()*Math.PI;
+  const wm=new THREE.Mesh(new THREE.BoxGeometry(wl,.5,.15),wireMat);
+  wm.position.set(wx,.25,wz); wm.rotation.y=wAng; scene.add(wm);
+  // 철조망 포스트
+  [0,wl/2,-wl/2].forEach(off=>{
+    const post=new THREE.Mesh(new THREE.BoxGeometry(.15,1,.15),wireMat);
+    post.position.set(wx+Math.cos(wAng)*off,.5,wz+Math.sin(wAng)*off); scene.add(post);
+  });
+}
+
+// ── 불탄 차량 잔해 ─────────────────────────────────
+const burnedMat=new THREE.MeshLambertMaterial({color:0x2a2010});
+for(let i=0;i<15;i++){
+  const vx=(Math.random()-.5)*GROUND_SIZE*.8, vz=(Math.random()-.5)*GROUND_SIZE*.8;
+  // 차체
+  const vh=new THREE.Mesh(new THREE.BoxGeometry(4,1.2,2),burnedMat);
+  vh.position.set(vx,.6,vz); vh.rotation.y=Math.random()*Math.PI; vh.castShadow=true; scene.add(vh);
+  // 바퀴 흔적
+  const whl=new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.4,6),burnedMat);
+  whl.rotation.z=Math.PI/2; whl.position.set(vx+1.8,.3,vz); scene.add(whl);
+  buildingCollisionBoxes.push(new THREE.Box3().setFromObject(vh));
+}
+
+// Trees — 전쟁터용: 성긴 침엽수, 불탄 나무 위주
+// ── 전쟁터 나무 (성긴 고사목 + 일부 침엽수) ───────────
+function plantWartree(tx, tz) {
   const roll = Math.random();
-  const th = 3 + Math.random()*8;
-  if (roll < 0.4) {
-    // Conifer — tall, layered
-    const layers = Math.floor(th/2.5);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.18,.3,th*.35,6), new THREE.MeshLambertMaterial({ color:0x2a1a08 }));
-    trunk.position.set(tx, th*.175, tz); trunk.castShadow=true; scene.add(trunk);
-    for (let l=0;l<layers;l++) {
-      const r = (th*.38) * (1 - l/layers*.55);
-      const ly = th*.28 + l*(th*.62/layers);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, th*.38, 7), new THREE.MeshLambertMaterial({ color: l%2===0?0x1a3a0e:0x1e4210 }));
-      cone.position.set(tx, ly, tz); cone.castShadow=true; scene.add(cone);
+  const th = 4 + Math.random()*9;
+  const trunkCol = 0x2a1a08;
+
+  if (roll < 0.25) {
+    // 침엽수 (생존목, 듬성)
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.2,.35,th*.4,5),new THREE.MeshLambertMaterial({color:trunkCol}));
+    trunk.position.set(tx,th*.2,tz); trunk.castShadow=true; scene.add(trunk);
+    const layers=2+Math.floor(Math.random()*2);
+    for(let l=0;l<layers;l++){
+      const r=(th*.32)*(1-l/layers*.5);
+      const ly=th*.3+l*(th*.55/layers);
+      const cone=new THREE.Mesh(new THREE.ConeGeometry(r,th*.32,5),new THREE.MeshLambertMaterial({color:0x1a3010}));
+      cone.position.set(tx,ly,tz); cone.castShadow=true; scene.add(cone);
     }
-  } else if (roll < 0.78) {
-    // Broadleaf — round canopy
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.2,.32,th*.4,6), new THREE.MeshLambertMaterial({ color:0x2a1a08 }));
-    trunk.position.set(tx, th*.2, tz); trunk.castShadow=true; scene.add(trunk);
-    // Main canopy
-    const can = new THREE.Mesh(new THREE.SphereGeometry(th*.42,8,6), new THREE.MeshLambertMaterial({ color:0x1a3a10 }));
-    can.position.set(tx, th*.65, tz); can.castShadow=true; scene.add(can);
-    // Sub-canopy blobs
-    const nc = 2 + Math.floor(Math.random()*3);
-    for (let c=0;c<nc;c++) {
-      const ang = (c/nc)*Math.PI*2, cr = th*.28;
-      const sub = new THREE.Mesh(new THREE.SphereGeometry(cr,6,5), new THREE.MeshLambertMaterial({ color:0x214a14 }));
-      sub.position.set(tx+Math.cos(ang)*cr*.7, th*.58+Math.random()*cr*.4, tz+Math.sin(ang)*cr*.7);
-      sub.castShadow=true; scene.add(sub);
-    }
+  } else if (roll < 0.45) {
+    // 반쯤 부러진 나무
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.18,.3,th*.5,5),new THREE.MeshLambertMaterial({color:trunkCol}));
+    trunk.position.set(tx,th*.25,tz); trunk.rotation.z=(Math.random()-.5)*.25; trunk.castShadow=true; scene.add(trunk);
+    const stump=new THREE.Mesh(new THREE.CylinderGeometry(.25,.35,1.2,5),new THREE.MeshLambertMaterial({color:0x1e1208}));
+    stump.position.set(tx,.6,tz); scene.add(stump);
   } else {
-    // Dead / burnt tree
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.16,.28,th*.6,6), new THREE.MeshLambertMaterial({ color:0x1e1408 }));
-    trunk.position.set(tx, th*.3, tz); trunk.castShadow=true; scene.add(trunk);
-    // Bare branches
-    const nb = 2 + Math.floor(Math.random()*3);
-    for (let b=0;b<nb;b++) {
-      const ang = (b/nb)*Math.PI*2, bl = th*.22 + Math.random()*th*.15;
-      const br = new THREE.Mesh(new THREE.CylinderGeometry(.06,.1,bl,4), new THREE.MeshLambertMaterial({ color:0x18100a }));
-      br.position.set(tx+Math.cos(ang)*bl*.4, th*.52, tz+Math.sin(ang)*bl*.4);
-      br.rotation.z = (Math.random()-.5)*.8; br.rotation.x = (Math.random()-.5)*.8;
+    // 고사목/불탄 나무 (전쟁터 주력)
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.14,.26,th*.55,5),new THREE.MeshLambertMaterial({color:0x1a1008}));
+    trunk.position.set(tx,th*.275,tz); trunk.castShadow=true; scene.add(trunk);
+    const nb=2+Math.floor(Math.random()*3);
+    for(let b=0;b<nb;b++){
+      const ang=(b/nb)*Math.PI*2+Math.random()*.5;
+      const bl=th*.18+Math.random()*th*.12;
+      const br=new THREE.Mesh(new THREE.CylinderGeometry(.05,.1,bl,4),new THREE.MeshLambertMaterial({color:0x141008}));
+      br.position.set(tx+Math.cos(ang)*bl*.4,th*.45+Math.random()*.5*th*.2,tz+Math.sin(ang)*bl*.4);
+      br.rotation.z=(Math.random()-.5)*.9; br.rotation.x=(Math.random()-.5)*.6;
       br.castShadow=true; scene.add(br);
     }
   }
 }
 
-// Clustered forest areas
-TREE_CLUSTERS.forEach(({ cx, cz, n }) => {
-  for (let i=0;i<n;i++) {
-    const ang = Math.random()*Math.PI*2;
-    const r = 15 + Math.random()*55;
-    plantTree(cx + Math.cos(ang)*r, cz + Math.sin(ang)*r);
+// 산악 지역 소규모 숲 (성긴)
+const WAR_TREE_CLUSTERS = [
+  [180,220,12],[-200,160,10],[300,-180,8],[-150,-280,10],
+  [400,80,9],[-380,200,8],[250,380,10],[-280,-350,9],
+  [120,-420,7],[-440,80,8],[350,300,8],[-300,350,7],
+];
+WAR_TREE_CLUSTERS.forEach(([cx,cz,n])=>{
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2, r=20+Math.random()*60;
+    plantWartree(cx+Math.cos(ang)*r, cz+Math.sin(ang)*r);
   }
 });
-// Scattered singles across map
-for (let i=0;i<80;i++) {
-  const tx = (Math.random()-.5)*GROUND_SIZE*.9;
-  const tz = (Math.random()-.5)*GROUND_SIZE*.9;
-  if (Math.abs(tx)<14 || Math.abs(tz)<14) { i--; continue; }
-  plantTree(tx, tz);
+// 산개 고사목
+for(let i=0;i<120;i++){
+  const tx=(Math.random()-.5)*GROUND_SIZE*.92;
+  const tz=(Math.random()-.5)*GROUND_SIZE*.92;
+  if(Math.hypot(tx,tz)<18){i--;continue;}
+  plantWartree(tx,tz);
 }
+
 
 // ── Drone Model ───────────────────────────────────
 const droneGroup = new THREE.Group();           // root: position + yaw only
