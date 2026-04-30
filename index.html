@@ -191,6 +191,50 @@
   }
   .js-label { position:absolute; bottom:-28px; left:50%; transform:translateX(-50%); font-size:9px; color:rgba(255,255,255,.4); white-space:nowrap; }
 
+  /* ── Map Select ── */
+  #scr-map {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; z-index:300;
+    background:radial-gradient(ellipse at center,rgba(0,35,18,.97) 0%,rgba(2,8,5,.99) 100%);
+  }
+  #scr-map.gone { display:none; }
+
+  .ms-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:20px;
+    width:min(700px,92vw); margin-top:22px;
+  }
+  .ms-card {
+    background:rgba(0,18,10,.88); border:1px solid rgba(0,255,136,.22);
+    border-radius:4px; cursor:pointer; transition:all .2s;
+    overflow:hidden; position:relative;
+    clip-path:polygon(10px 0%,100% 0%,calc(100% - 10px) 100%,0% 100%);
+  }
+  .ms-card:hover, .ms-card.selected {
+    border-color:rgba(0,255,136,.7);
+    box-shadow:0 0 20px rgba(0,255,136,.18);
+    transform:translateY(-3px);
+  }
+  .ms-card.selected { border-color:var(--g); }
+  .ms-card.selected::after {
+    content:'✓ SELECTED'; position:absolute; top:8px; right:10px;
+    font-size:8px; color:var(--g); letter-spacing:2px; font-family:'Orbitron',monospace;
+  }
+  .ms-thumb {
+    width:100%; height:140px; display:block; position:relative; overflow:hidden;
+  }
+  .ms-thumb canvas { width:100%; height:100%; display:block; }
+  .ms-info { padding:12px 14px 14px; }
+  .ms-name {
+    font-family:'Orbitron',monospace; font-size:13px; font-weight:700;
+    color:var(--g); letter-spacing:2px; margin-bottom:4px;
+  }
+  .ms-desc { color:rgba(0,255,136,.5); font-size:10px; line-height:1.6; }
+  .ms-tag {
+    display:inline-block; margin-top:6px; padding:2px 8px;
+    border:1px solid rgba(0,255,136,.3); font-size:8px; letter-spacing:2px;
+    color:rgba(0,255,136,.6);
+  }
+
   /* ── Vehicle Select ── */
   #scr-vehicle {
     position:fixed; inset:0; display:flex; flex-direction:column;
@@ -332,6 +376,16 @@
   <button class="sbtn" id="btn-start">전투 개시</button>
 </div>
 
+<!-- Map Select Screen -->
+<div id="scr-map" class="gone">
+  <div class="stitle" style="font-size:clamp(20px,4vw,40px)">전투 구역 선택</div>
+  <div class="ssub">SELECT BATTLEFIELD</div>
+  <div class="ms-grid" id="ms-grid">
+    <!-- cards injected by JS -->
+  </div>
+  <button class="vs-confirm" id="ms-confirm" style="margin-top:24px">기체 선택 ▶</button>
+</div>
+
 <!-- Vehicle Select Screen -->
 <div id="scr-vehicle" class="gone">
   <div class="vs-title">기체 선택</div>
@@ -449,7 +503,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
-renderer.setClearColor(0x6b5a3e);
+renderer.setClearColor(0x0a1010); // 초기값, buildSelectedMap이 덮어씀
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -459,27 +513,7 @@ window.addEventListener('resize', () => {
 
 // ── Scene ─────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x8a7355, 0.0035); // 황사/먼지 안개
-
-// Sky: 전쟁터 황혼 하늘
-(function() {
-  const c2 = document.createElement('canvas');
-  c2.width = 256; c2.height = 512;
-  const ctx = c2.getContext('2d');
-  const g = ctx.createLinearGradient(0,0,0,512);
-  g.addColorStop(0,   '#1a1208');  // 짙은 갈색 상단
-  g.addColorStop(0.3, '#3d2e18');  // 황토
-  g.addColorStop(0.6, '#6b5030');  // 황사
-  g.addColorStop(0.85,'#8a6840');  // 지평선
-  g.addColorStop(1,   '#a07845');  // 연기
-  ctx.fillStyle = g; ctx.fillRect(0,0,256,512);
-  // 연기 구름 몇 개
-  ctx.fillStyle = 'rgba(60,45,25,0.35)';
-  [[60,120,90,35],[150,180,110,28],[40,280,130,40],[180,320,80,22]].forEach(([x,y,rw,rh])=>{
-    ctx.beginPath(); ctx.ellipse(x,y,rw,rh,0,0,Math.PI*2); ctx.fill();
-  });
-  scene.background = new THREE.CanvasTexture(c2);
-})();
+scene.fog = new THREE.FogExp2(0x0a1010, 0.003);
 
 // ── Camera ────────────────────────────────────────
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
@@ -487,7 +521,7 @@ camera.position.set(0, 18, 28);
 const cameraPosTarget = new THREE.Vector3();
 const cameraLookTarget = new THREE.Vector3();
 let cameraTargetLook = null;
-let cameraMode = 'third'; // 'third' | 'fpv'
+let cameraMode = 'third';
 
 const CAMERA_CFG = {
   followDistance: 16, followHeight: 7, lookAhead: 8,
@@ -496,25 +530,44 @@ const CAMERA_CFG = {
   baseFov: 60, maxFovBoost: 14, fovSpeedNorm: 9, fovLerp: 0.08
 };
 
-// ── Lighting ──────────────────────────────────────
-scene.add(new THREE.HemisphereLight(0xc8a870, 0x3a2a10, 0.9));
-scene.add(new THREE.AmbientLight(0x8a6a30, 0.7));
-
-const sun = new THREE.DirectionalLight(0xffa040, 1.1);
-sun.position.set(-80, 60, 30);
-sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
-sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 800;
-sun.shadow.camera.left = sun.shadow.camera.bottom = -300;
-sun.shadow.camera.right = sun.shadow.camera.top = 300;
-sun.shadow.bias = -0.00015;
-scene.add(sun);
-
-const rimLight = new THREE.PointLight(0xffc060, 0.7, 80);
+// rimLight placeholder (buildSelectedMap이 재생성)
+const rimLight = new THREE.PointLight(0xffffff, 0.6, 80);
 scene.add(rimLight);
 
-// ── World ─────────────────────────────────────────
+// ── World (함수로 분리, initGame 시 호출) ─────────────
 const GROUND_SIZE = MAP_BOUND * 2;
+let selectedMap = 'desert';
+
+function buildDesertMap() {
+  // 사막/전쟁터 맵 분위기 적용
+  renderer.setClearColor(0x6b5a3e);
+  scene.fog = new THREE.FogExp2(0x8a7355, 0.0035);
+  {
+    const c2=document.createElement('canvas'); c2.width=256; c2.height=512;
+    const ctx=c2.getContext('2d');
+    const g=ctx.createLinearGradient(0,0,0,512);
+    g.addColorStop(0,'#1a1208'); g.addColorStop(0.3,'#3d2e18');
+    g.addColorStop(0.6,'#6b5030'); g.addColorStop(0.85,'#8a6840'); g.addColorStop(1,'#a07845');
+    ctx.fillStyle=g; ctx.fillRect(0,0,256,512);
+    ctx.fillStyle='rgba(60,45,25,0.35)';
+    [[60,120,90,35],[150,180,110,28],[40,280,130,40],[180,320,80,22]].forEach(([x,y,rw,rh])=>{
+      ctx.beginPath(); ctx.ellipse(x,y,rw,rh,0,0,Math.PI*2); ctx.fill();
+    });
+    scene.background=new THREE.CanvasTexture(c2);
+  }
+  // Lighting
+  [...scene.children].filter(c=>c.isLight).forEach(c=>scene.remove(c));
+  [...mapGroup.children].filter(c=>c.isLight).forEach(c=>mapGroup.remove(c));
+  scene.add(new THREE.HemisphereLight(0xc8a870,0x3a2a10,0.9));
+  scene.add(new THREE.AmbientLight(0x8a6a30,0.7));
+  const dSun=new THREE.DirectionalLight(0xffa040,1.1);
+  dSun.position.set(-80,60,30); dSun.castShadow=true;
+  dSun.shadow.mapSize.set(1024,1024);
+  dSun.shadow.camera.near=0.5; dSun.shadow.camera.far=800;
+  dSun.shadow.camera.left=dSun.shadow.camera.bottom=-300;
+  dSun.shadow.camera.right=dSun.shadow.camera.top=300;
+  dSun.shadow.bias=-0.00015; scene.add(dSun);
+  scene.add(new THREE.PointLight(0xffc060,0.7,80));
 
 // ── 산악 지형 ──────────────────────────────────────
 (function() {
@@ -540,7 +593,7 @@ const GROUND_SIZE = MAP_BOUND * 2;
   const mat = new THREE.MeshLambertMaterial({ color: 0x7a6040 });
   const m = new THREE.Mesh(geo, mat);
   m.rotation.x = -Math.PI/2; m.receiveShadow = true;
-  scene.add(m);
+  mapGroup.add(m);
 
   // 바위 패치 (어두운 구역)
   const rockMat = new THREE.MeshLambertMaterial({ color: 0x4a3828 });
@@ -548,7 +601,7 @@ const GROUND_SIZE = MAP_BOUND * 2;
     const rx=(Math.random()-.5)*GROUND_SIZE*.85, rz=(Math.random()-.5)*GROUND_SIZE*.85;
     const rr=8+Math.random()*25;
     const rc=new THREE.Mesh(new THREE.CircleGeometry(rr,8),rockMat);
-    rc.rotation.x=-Math.PI/2; rc.position.set(rx,.05,rz); scene.add(rc);
+    rc.rotation.x=-Math.PI/2; rc.position.set(rx,.05,rz); mapGroup.add(rc);
   }
 
   // 흙길 (좁고 구불구불)
@@ -558,9 +611,9 @@ const GROUND_SIZE = MAP_BOUND * 2;
     const tx = t - GROUND_SIZE/2;
     const wob = Math.sin(tx*0.015)*30;
     const rm=new THREE.Mesh(new THREE.PlaneGeometry(7,14),dirtMat);
-    rm.rotation.x=-Math.PI/2; rm.position.set(tx,.08,wob); scene.add(rm);
+    rm.rotation.x=-Math.PI/2; rm.position.set(tx,.08,wob); mapGroup.add(rm);
     const rm2=new THREE.Mesh(new THREE.PlaneGeometry(14,7),dirtMat);
-    rm2.rotation.x=-Math.PI/2; rm2.position.set(wob,.08,tx); scene.add(rm2);
+    rm2.rotation.x=-Math.PI/2; rm2.position.set(wob,.08,tx); mapGroup.add(rm2);
   }
 
   // 포탄 크레이터 많이
@@ -570,9 +623,9 @@ const GROUND_SIZE = MAP_BOUND * 2;
     const cx=(Math.random()-.5)*GROUND_SIZE*.95, cz=(Math.random()-.5)*GROUND_SIZE*.95;
     const cr=1.5+Math.random()*6;
     const cm=new THREE.Mesh(new THREE.CircleGeometry(cr,8),craterMat);
-    cm.rotation.x=-Math.PI/2; cm.position.set(cx,.09,cz); scene.add(cm);
+    cm.rotation.x=-Math.PI/2; cm.position.set(cx,.09,cz); mapGroup.add(cm);
     const rim=new THREE.Mesh(new THREE.TorusGeometry(cr,.5,3,10),rimMat);
-    rim.rotation.x=-Math.PI/2; rim.position.set(cx,.15,cz); scene.add(rim);
+    rim.rotation.x=-Math.PI/2; rim.position.set(cx,.15,cz); mapGroup.add(rim);
   }
 
   // 불탄 흔적
@@ -581,12 +634,12 @@ const GROUND_SIZE = MAP_BOUND * 2;
     const bx=(Math.random()-.5)*GROUND_SIZE*.9, bz=(Math.random()-.5)*GROUND_SIZE*.9;
     const br=3+Math.random()*12;
     const bm=new THREE.Mesh(new THREE.CircleGeometry(br,7),burnMat);
-    bm.rotation.x=-Math.PI/2; bm.position.set(bx,.1,bz); scene.add(bm);
+    bm.rotation.x=-Math.PI/2; bm.position.set(bx,.1,bz); mapGroup.add(bm);
   }
 })();
 
 // ── 바위/암석 ──────────────────────────────────────
-const buildingCollisionBoxes = [];
+  // buildingCollisionBoxes is global
 for(let i=0;i<60;i++){
   const rx=(Math.random()-.5)*GROUND_SIZE*.9, rz=(Math.random()-.5)*GROUND_SIZE*.9;
   if(Math.hypot(rx,rz)<30) { i--; continue; }
@@ -595,7 +648,7 @@ for(let i=0;i<60;i++){
   const rm=new THREE.Mesh(new THREE.BoxGeometry(rw,rh,rd),new THREE.MeshLambertMaterial({color:col}));
   rm.position.set(rx,rh/2,rz);
   rm.rotation.y=Math.random()*Math.PI;
-  rm.castShadow=true; rm.receiveShadow=true; scene.add(rm);
+  rm.castShadow=true; rm.receiveShadow=true; mapGroup.add(rm);
   buildingCollisionBoxes.push(new THREE.Box3().setFromObject(rm));
 }
 
@@ -612,13 +665,13 @@ function spawnWarbuildng(bx, bz) {
   // 벽 (BoxGeometry)
   const bm=new THREE.Mesh(new THREE.BoxGeometry(bw,actualH,bd),new THREE.MeshLambertMaterial({color:col}));
   bm.position.set(bx,actualH/2,bz);
-  bm.castShadow=true; bm.receiveShadow=true; scene.add(bm);
+  bm.castShadow=true; bm.receiveShadow=true; mapGroup.add(bm);
   buildingCollisionBoxes.push(new THREE.Box3().setFromObject(bm));
 
   // 파손된 지붕 (일부만)
   if(!isDmg && Math.random()>.5){
     const roof=new THREE.Mesh(new THREE.BoxGeometry(bw+.4,.4,bd+.4),new THREE.MeshLambertMaterial({color:0x4a3820}));
-    roof.position.set(bx,actualH+.2,bz); roof.castShadow=true; scene.add(roof);
+    roof.position.set(bx,actualH+.2,bz); roof.castShadow=true; mapGroup.add(roof);
   }
 
   // 잔해 더미
@@ -627,7 +680,7 @@ function spawnWarbuildng(bx, bz) {
       const dw=1+Math.random()*3, dh=0.3+Math.random()*1.2;
       const dm=new THREE.Mesh(new THREE.BoxGeometry(dw,dh,dw),new THREE.MeshLambertMaterial({color:col}));
       dm.position.set(bx+(Math.random()-.5)*bw*.8, dh/2, bz+(Math.random()-.5)*bd*.8);
-      dm.rotation.y=Math.random()*Math.PI; scene.add(dm);
+      dm.rotation.y=Math.random()*Math.PI; mapGroup.add(dm);
     }
   }
 
@@ -637,7 +690,7 @@ function spawnWarbuildng(bx, bz) {
     for(let s=0;s<4;s++){
       const sb=new THREE.Mesh(new THREE.BoxGeometry(1.4,.6,.7),sbMat);
       sb.position.set(bx+(Math.random()-.5)*(bw+2), .3, bz+bd/2+.5+(Math.random()-.5)*2);
-      sb.rotation.y=(Math.random()-.5)*.4; scene.add(sb);
+      sb.rotation.y=(Math.random()-.5)*.4; mapGroup.add(sb);
     }
   }
 }
@@ -673,7 +726,7 @@ for(let i=0;i<18;i++){
   for(let s=0;s<Math.round(tl/4);s++){
     const sx=tx+Math.cos(ang)*s*4, sz=tz+Math.sin(ang)*s*4;
     const sb=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.5,.8),trenchMat);
-    sb.position.set(sx,.75,sz); sb.rotation.y=ang+(Math.random()-.5)*.3; scene.add(sb);
+    sb.position.set(sx,.75,sz); sb.rotation.y=ang+(Math.random()-.5)*.3; mapGroup.add(sb);
   }
 }
 
@@ -683,11 +736,11 @@ for(let i=0;i<30;i++){
   const wx=(Math.random()-.5)*GROUND_SIZE*.75, wz=(Math.random()-.5)*GROUND_SIZE*.75;
   const wl=6+Math.random()*16, wAng=Math.random()*Math.PI;
   const wm=new THREE.Mesh(new THREE.BoxGeometry(wl,.5,.15),wireMat);
-  wm.position.set(wx,.25,wz); wm.rotation.y=wAng; scene.add(wm);
+  wm.position.set(wx,.25,wz); wm.rotation.y=wAng; mapGroup.add(wm);
   // 철조망 포스트
   [0,wl/2,-wl/2].forEach(off=>{
     const post=new THREE.Mesh(new THREE.BoxGeometry(.15,1,.15),wireMat);
-    post.position.set(wx+Math.cos(wAng)*off,.5,wz+Math.sin(wAng)*off); scene.add(post);
+    post.position.set(wx+Math.cos(wAng)*off,.5,wz+Math.sin(wAng)*off); mapGroup.add(post);
   });
 }
 
@@ -697,10 +750,10 @@ for(let i=0;i<15;i++){
   const vx=(Math.random()-.5)*GROUND_SIZE*.8, vz=(Math.random()-.5)*GROUND_SIZE*.8;
   // 차체
   const vh=new THREE.Mesh(new THREE.BoxGeometry(4,1.2,2),burnedMat);
-  vh.position.set(vx,.6,vz); vh.rotation.y=Math.random()*Math.PI; vh.castShadow=true; scene.add(vh);
+  vh.position.set(vx,.6,vz); vh.rotation.y=Math.random()*Math.PI; vh.castShadow=true; mapGroup.add(vh);
   // 바퀴 흔적
   const whl=new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.4,6),burnedMat);
-  whl.rotation.z=Math.PI/2; whl.position.set(vx+1.8,.3,vz); scene.add(whl);
+  whl.rotation.z=Math.PI/2; whl.position.set(vx+1.8,.3,vz); mapGroup.add(whl);
   buildingCollisionBoxes.push(new THREE.Box3().setFromObject(vh));
 }
 
@@ -714,24 +767,24 @@ function plantWartree(tx, tz) {
   if (roll < 0.25) {
     // 침엽수 (생존목, 듬성)
     const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.2,.35,th*.4,5),new THREE.MeshLambertMaterial({color:trunkCol}));
-    trunk.position.set(tx,th*.2,tz); trunk.castShadow=true; scene.add(trunk);
+    trunk.position.set(tx,th*.2,tz); trunk.castShadow=true; mapGroup.add(trunk);
     const layers=2+Math.floor(Math.random()*2);
     for(let l=0;l<layers;l++){
       const r=(th*.32)*(1-l/layers*.5);
       const ly=th*.3+l*(th*.55/layers);
       const cone=new THREE.Mesh(new THREE.ConeGeometry(r,th*.32,5),new THREE.MeshLambertMaterial({color:0x1a3010}));
-      cone.position.set(tx,ly,tz); cone.castShadow=true; scene.add(cone);
+      cone.position.set(tx,ly,tz); cone.castShadow=true; mapGroup.add(cone);
     }
   } else if (roll < 0.45) {
     // 반쯤 부러진 나무
     const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.18,.3,th*.5,5),new THREE.MeshLambertMaterial({color:trunkCol}));
-    trunk.position.set(tx,th*.25,tz); trunk.rotation.z=(Math.random()-.5)*.25; trunk.castShadow=true; scene.add(trunk);
+    trunk.position.set(tx,th*.25,tz); trunk.rotation.z=(Math.random()-.5)*.25; trunk.castShadow=true; mapGroup.add(trunk);
     const stump=new THREE.Mesh(new THREE.CylinderGeometry(.25,.35,1.2,5),new THREE.MeshLambertMaterial({color:0x1e1208}));
-    stump.position.set(tx,.6,tz); scene.add(stump);
+    stump.position.set(tx,.6,tz); mapGroup.add(stump);
   } else {
     // 고사목/불탄 나무 (전쟁터 주력)
     const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.14,.26,th*.55,5),new THREE.MeshLambertMaterial({color:0x1a1008}));
-    trunk.position.set(tx,th*.275,tz); trunk.castShadow=true; scene.add(trunk);
+    trunk.position.set(tx,th*.275,tz); trunk.castShadow=true; mapGroup.add(trunk);
     const nb=2+Math.floor(Math.random()*3);
     for(let b=0;b<nb;b++){
       const ang=(b/nb)*Math.PI*2+Math.random()*.5;
@@ -739,7 +792,7 @@ function plantWartree(tx, tz) {
       const br=new THREE.Mesh(new THREE.CylinderGeometry(.05,.1,bl,4),new THREE.MeshLambertMaterial({color:0x141008}));
       br.position.set(tx+Math.cos(ang)*bl*.4,th*.45+Math.random()*.5*th*.2,tz+Math.sin(ang)*bl*.4);
       br.rotation.z=(Math.random()-.5)*.9; br.rotation.x=(Math.random()-.5)*.6;
-      br.castShadow=true; scene.add(br);
+      br.castShadow=true; mapGroup.add(br);
     }
   }
 }
@@ -763,7 +816,195 @@ for(let i=0;i<120;i++){
   if(Math.hypot(tx,tz)<18){i--;continue;}
   plantWartree(tx,tz);
 }
+}
 
+function buildCityMap() {
+  // 도시 맵 분위기
+  renderer.setClearColor(0x0a1525);
+  scene.fog = new THREE.FogExp2(0x0a1525, 0.0025);
+  {
+    const c2=document.createElement('canvas'); c2.width=256; c2.height=512;
+    const ctx=c2.getContext('2d');
+    const g=ctx.createLinearGradient(0,0,0,512);
+    g.addColorStop(0,'#070c18'); g.addColorStop(0.5,'#0d1a2f');
+    g.addColorStop(0.8,'#1a2b45'); g.addColorStop(1,'#273548');
+    ctx.fillStyle=g; ctx.fillRect(0,0,256,512);
+    scene.background=new THREE.CanvasTexture(c2);
+  }
+  // Lighting
+  [...scene.children].filter(c=>c.isLight).forEach(c=>scene.remove(c));
+  [...mapGroup.children].filter(c=>c.isLight).forEach(c=>mapGroup.remove(c));
+  scene.add(new THREE.HemisphereLight(0x9ba29a,0x4e5660,0.7));
+  scene.add(new THREE.AmbientLight(0x6677aa,0.6));
+  const cSun=new THREE.DirectionalLight(0xffeedd,0.9);
+  cSun.position.set(50,100,50); cSun.castShadow=true;
+  cSun.shadow.mapSize.set(1024,1024);
+  cSun.shadow.camera.near=0.5; cSun.shadow.camera.far=800;
+  cSun.shadow.camera.left=cSun.shadow.camera.bottom=-300;
+  cSun.shadow.camera.right=cSun.shadow.camera.top=300;
+  cSun.shadow.bias=-0.00015; scene.add(cSun);
+  scene.add(new THREE.PointLight(0x4466aa,0.8,500));
+  scene.add(new THREE.PointLight(0xffffff,0.9,80));
+
+
+// ── 도시형 맵 ────────────────────────────────────────
+(function() {
+  // 평탄한 도시 지형
+  const geo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 40, 40);
+  const pos = geo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), z=pos.getZ(i);
+    pos.setY(i, (Math.sin(x*0.018)*Math.cos(z*0.016)*1.8 + Math.sin(x*0.05)*0.5));
+  }
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({ color:0x1e1e18 });
+  const m = new THREE.Mesh(geo, mat); m.rotation.x=-Math.PI/2; m.receiveShadow=true; mapGroup.add(m);
+
+  // Grid overlay
+  const grid = new THREE.GridHelper(GROUND_SIZE, 50, 0x00ff44, 0x001a00);
+  grid.material.opacity=0.08; grid.material.transparent=true; grid.position.y=0.05; mapGroup.add(grid);
+
+  // Road network
+  const roadMat = new THREE.MeshLambertMaterial({color:0x1a1a14});
+  const markMat = new THREE.MeshLambertMaterial({color:0xdddd66, transparent:true, opacity:.7});
+  [[0,0,12,GROUND_SIZE],[0,0,GROUND_SIZE,12],
+   [200,0,8,GROUND_SIZE],[-200,0,8,GROUND_SIZE],
+   [0,200,GROUND_SIZE,8],[0,-200,GROUND_SIZE,8],
+   [100,0,6,GROUND_SIZE*.7],[-100,0,6,GROUND_SIZE*.7],
+   [0,100,GROUND_SIZE*.7,6],[0,-100,GROUND_SIZE*.7,6]].forEach(([x,z,rw,rd])=>{
+    const rm=new THREE.Mesh(new THREE.PlaneGeometry(rw,rd),roadMat);
+    rm.rotation.x=-Math.PI/2; rm.position.set(x,.06,z); rm.receiveShadow=true; mapGroup.add(rm);
+  });
+  for(let i=-580;i<580;i+=22){
+    const d1=new THREE.Mesh(new THREE.PlaneGeometry(9,1.2),markMat);
+    d1.rotation.x=-Math.PI/2; d1.position.set(i,.08,0); mapGroup.add(d1);
+    const d2=new THREE.Mesh(new THREE.PlaneGeometry(1.2,9),markMat);
+    d2.rotation.x=-Math.PI/2; d2.position.set(0,.08,i); mapGroup.add(d2);
+  }
+  // Craters
+  const crMat=new THREE.MeshLambertMaterial({color:0x0d0d08});
+  for(let i=0;i<20;i++){
+    const cx=(Math.random()-.5)*GROUND_SIZE*.9, cz=(Math.random()-.5)*GROUND_SIZE*.9;
+    const cr=1.5+Math.random()*4;
+    const cm=new THREE.Mesh(new THREE.CircleGeometry(cr,8),crMat);
+    cm.rotation.x=-Math.PI/2; cm.position.set(cx,.08,cz); mapGroup.add(cm);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(cr,.35,3,10),new THREE.MeshLambertMaterial({color:0x1a1a0e}));
+    rim.rotation.x=-Math.PI/2; rim.position.set(cx,.1,cz); mapGroup.add(rim);
+  }
+})();
+
+// Buildings
+  // buildingCollisionBoxes is global
+const STYLE_COLORS = {
+  urban:      [0x4a4035,0x3a3228,0x5a4a3a],
+  ruins:      [0x2a2018,0x1e1810,0x352820],
+  industrial: [0x3a3a3a,0x2a2a28,0x484838],
+};
+const _winTexCache = {};
+function makeWindowTexture(bw, bh) {
+  const key=Math.round(bw)+'_'+Math.round(bh);
+  if(_winTexCache[key]) return _winTexCache[key];
+  const TW=256, TH=Math.round(256*bh/Math.max(bw,1));
+  const c2=document.createElement('canvas'); c2.width=TW; c2.height=TH;
+  const ctx=c2.getContext('2d');
+  ctx.fillStyle='#1a2218'; ctx.fillRect(0,0,TW,TH);
+  const cols=Math.floor(bw/4), rows=Math.floor(bh/4);
+  const cw=TW/Math.max(cols,1), ch=TH/Math.max(rows,1);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    if(Math.random()>.38){
+      ctx.fillStyle=Math.random()>.3?'rgba(255,240,150,0.75)':'rgba(180,210,255,0.4)';
+      ctx.fillRect(c*cw+cw*.15,r*ch+ch*.15,cw*.7,ch*.7);
+    }
+  }
+  const tex=new THREE.CanvasTexture(c2); _winTexCache[key]=tex; return tex;
+}
+function spawnBuilding(bx, bz, style) {
+  const colors=STYLE_COLORS[style]||STYLE_COLORS.urban;
+  const isDmg=style==='ruins'||Math.random()>.55;
+  const bw=10+Math.random()*22, bh=(isDmg?5:12)+Math.random()*(isDmg?16:42), bd=10+Math.random()*22;
+  const actualH=bh*(isDmg?.45:1);
+  const col=colors[Math.floor(Math.random()*colors.length)];
+  const bm=new THREE.Mesh(new THREE.BoxGeometry(bw,actualH,bd),new THREE.MeshLambertMaterial({color:col}));
+  bm.position.set(bx,actualH/2,bz); bm.castShadow=true; bm.receiveShadow=true; mapGroup.add(bm);
+  buildingCollisionBoxes.push(new THREE.Box3().setFromObject(bm));
+  if(style==='urban'&&!isDmg&&actualH>10){
+    const winTex=makeWindowTexture(bw,actualH);
+    const winMat=new THREE.MeshBasicMaterial({map:winTex,transparent:true,opacity:.9,depthWrite:false});
+    const wF=new THREE.Mesh(new THREE.PlaneGeometry(bw,actualH),winMat);
+    wF.position.set(bx,actualH/2,bz+bd/2+.08); mapGroup.add(wF);
+    const wB=new THREE.Mesh(new THREE.PlaneGeometry(bw,actualH),winMat);
+    wB.position.set(bx,actualH/2,bz-bd/2-.08); wB.rotation.y=Math.PI; mapGroup.add(wB);
+  }
+  if(style==='industrial'&&!isDmg){
+    const ch=new THREE.Mesh(new THREE.CylinderGeometry(.8,1.0,bh*.3,6),new THREE.MeshLambertMaterial({color:0x222222}));
+    ch.position.set(bx+(Math.random()-.5)*bw*.4,actualH+bh*.15,bz+(Math.random()-.5)*bd*.4);
+    ch.castShadow=true; mapGroup.add(ch);
+  }
+  if(isDmg){
+    const rb=new THREE.Mesh(new THREE.BoxGeometry(bw*.8,1.2,bd*.8),new THREE.MeshLambertMaterial({color:0x1a1510}));
+    rb.position.set(bx+(Math.random()-.5)*2,.6,bz+(Math.random()-.5)*2); mapGroup.add(rb);
+  }
+}
+const CITY_ZONES=[
+  {cx:160,cz:160,n:12,style:'urban'},{cx:-160,cz:160,n:10,style:'urban'},
+  {cx:160,cz:-160,n:10,style:'ruins'},{cx:-160,cz:-160,n:12,style:'urban'},
+  {cx:320,cz:0,n:8,style:'industrial'},{cx:-320,cz:0,n:8,style:'industrial'},
+  {cx:0,cz:320,n:8,style:'ruins'},{cx:0,cz:-320,n:8,style:'urban'},
+  {cx:320,cz:320,n:6,style:'industrial'},{cx:-320,cz:-320,n:6,style:'ruins'},
+  {cx:320,cz:-320,n:5,style:'ruins'},{cx:-320,cz:320,n:5,style:'urban'},
+];
+CITY_ZONES.forEach(({cx,cz,n,style})=>{
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2, r=20+Math.random()*55;
+    const bx=cx+Math.cos(ang)*r, bz2=cz+Math.sin(ang)*r;
+    if(Math.abs(bx)<16||Math.abs(bz2)<16) continue;
+    spawnBuilding(bx,bz2,style);
+  }
+});
+for(let i=0;i<22;i++){
+  const bx=(Math.random()-.5)*GROUND_SIZE*.8, bz=(Math.random()-.5)*GROUND_SIZE*.8;
+  if(Math.abs(bx)<16||Math.abs(bz)<16){i--;continue;}
+  spawnBuilding(bx,bz,Math.random()>.5?'ruins':'urban');
+}
+for(let i=0;i<20;i++){
+  const wx=(Math.random()-.5)*GROUND_SIZE*.7, wz=(Math.random()-.5)*GROUND_SIZE*.7;
+  const wl=8+Math.random()*18, wh=1.5+Math.random()*2;
+  const wm=new THREE.Mesh(new THREE.BoxGeometry(wl,wh,.6),new THREE.MeshLambertMaterial({color:0x2a2218}));
+  wm.position.set(wx,wh/2,wz); wm.rotation.y=Math.random()*Math.PI; wm.castShadow=true; mapGroup.add(wm);
+}
+// City trees
+function plantCityTree(tx,tz){
+  const th=3+Math.random()*7, dead=Math.random()>.6;
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.18,.28,th*.4,5),new THREE.MeshLambertMaterial({color:0x2a1a08}));
+  trunk.position.set(tx,th*.2,tz); trunk.castShadow=true; mapGroup.add(trunk);
+  const can=new THREE.Mesh(new THREE.SphereGeometry(th*.38,7,5),new THREE.MeshLambertMaterial({color:dead?0x2a2018:0x1a3a10}));
+  can.position.set(tx,th*.6,tz); can.castShadow=true; mapGroup.add(can);
+}
+for(let i=0;i<80;i++){
+  const tx=(Math.random()-.5)*GROUND_SIZE*.9, tz=(Math.random()-.5)*GROUND_SIZE*.9;
+  if(Math.abs(tx)<14||Math.abs(tz)<14){i--;continue;}
+  plantCityTree(tx,tz);
+}
+
+}
+
+// ── Map container (모든 맵 오브젝트는 여기 추가) ──────
+const mapGroup = new THREE.Group();
+scene.add(mapGroup);
+
+// buildingCollisionBoxes는 여기서 선언 (맵 빌더들이 채움)
+const buildingCollisionBoxes = [];
+
+function buildSelectedMap() {
+  // 이전 맵 오브젝트 전부 제거
+  while(mapGroup.children.length) mapGroup.remove(mapGroup.children[0]);
+  // 이전 맵이 scene에 직접 추가한 DirectionalLight 제거
+  [...scene.children].filter(c => c.isDirectionalLight).forEach(c => scene.remove(c));
+  buildingCollisionBoxes.length = 0;
+
+  if (selectedMap === 'city') buildCityMap();
+  else buildDesertMap();
+}
 
 // ── Drone Model ───────────────────────────────────
 const droneGroup = new THREE.Group();           // root: position + yaw only
@@ -1531,6 +1772,9 @@ function initGame() {
   explosionList.length = 0;
 
   score = 0; kills = 0; wave = 1;
+
+  // Build map
+  buildSelectedMap();
 
   Object.assign(droneState, {
     x:0, z:0, altitude:0, roll:0, pitch:0, yaw:0,
@@ -2525,8 +2769,113 @@ function rebuildDroneForVehicle(vid) {
 }
 
 // ── Start flow ────────────────────────────────────
+// ── Map Select Screen ─────────────────────────────
+const MAP_DEFS = [
+  {
+    id: 'desert',
+    name: '사막 전장',
+    nameEn: 'DESERT WARZONE',
+    desc: '산악 황사지형 · 낡은 마을\n참호 · 철조망 · 불탄 차량',
+    tags: ['산악지형','고사목','황혼'],
+    sky: ['#1a1208','#3d2e18','#6b5030','#a07845'],
+    groundCol: '#7a6040',
+    accentCol: '#c8a060',
+  },
+  {
+    id: 'city',
+    name: '도시 전장',
+    nameEn: 'URBAN WARFARE',
+    desc: '야간 도시 · 콘크리트 건물\n가로등 · 격자 도로망',
+    tags: ['야간','건물','도로망'],
+    sky: ['#070c18','#0d1a2f','#1a2b45','#273548'],
+    groundCol: '#1e1e18',
+    accentCol: '#4488cc',
+  },
+];
+
+function drawMapThumb(canvas, mapDef) {
+  const W=canvas.width, H=canvas.height;
+  const ctx=canvas.getContext('2d');
+  // Sky
+  const g=ctx.createLinearGradient(0,0,0,H*.6);
+  mapDef.sky.forEach((c,i)=>g.addColorStop(i/(mapDef.sky.length-1),c));
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // Ground
+  const gg=ctx.createLinearGradient(0,H*.55,0,H);
+  gg.addColorStop(0,mapDef.groundCol); gg.addColorStop(1,'#0a0a08');
+  ctx.fillStyle=gg; ctx.fillRect(0,H*.55,W,H*.45);
+  // Horizon silhouette
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  if(mapDef.id==='desert'){
+    // Mountain silhouette
+    ctx.beginPath(); ctx.moveTo(0,H*.7);
+    for(let x=0;x<W;x+=12){
+      const y=H*.56+Math.sin(x*.04)*18+Math.sin(x*.09+1)*8;
+      ctx.lineTo(x,y);
+    }
+    ctx.lineTo(W,H*.7); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
+    // Small building silhouettes
+    ctx.fillStyle='rgba(0,0,0,0.7)';
+    [[60,H*.62,16,10],[120,H*.64,12,8],[200,H*.63,20,12],[280,H*.65,14,9]].forEach(([x,y,w,h])=>{
+      ctx.fillRect(x,y,w,h);
+    });
+  } else {
+    // City building silhouette
+    ctx.beginPath(); ctx.moveTo(0,H*.75);
+    [[0,H*.75],[30,H*.4],[50,H*.4],[50,H*.55],[80,H*.3],[110,H*.3],[110,H*.5],[140,H*.45],[160,H*.45],[160,H*.6],[200,H*.35],[230,H*.35],[230,H*.55],[260,H*.42],[290,H*.42],[290,H*.65],[W,H*.65],[W,H],[0,H]].forEach(([x,y])=>ctx.lineTo(x,y));
+    ctx.closePath(); ctx.fill();
+    // Window lights
+    ctx.fillStyle='rgba(255,220,100,0.6)';
+    for(let i=0;i<30;i++){
+      const wx=Math.random()*W, wy=H*.35+Math.random()*H*.25;
+      ctx.fillRect(wx,wy,2,2);
+    }
+  }
+  // Label
+  ctx.fillStyle=mapDef.accentCol;
+  ctx.font='bold 11px Orbitron,monospace';
+  ctx.textAlign='center';
+  ctx.fillText(mapDef.nameEn, W/2, H-10);
+}
+
+function buildMapSelectScreen() {
+  const grid=document.getElementById('ms-grid');
+  grid.innerHTML='';
+  MAP_DEFS.forEach(m=>{
+    const card=document.createElement('div');
+    card.className='ms-card'; card.dataset.id=m.id;
+    // Thumb
+    const thumb=document.createElement('div'); thumb.className='ms-thumb';
+    const cvs=document.createElement('canvas'); cvs.width=320; cvs.height=140;
+    cvs.style.cssText='width:100%;height:140px;display:block;';
+    thumb.appendChild(cvs); card.appendChild(thumb);
+    // Info
+    const info=document.createElement('div'); info.className='ms-info';
+    info.innerHTML=`<div class="ms-name">${m.name}</div>
+      <div class="ms-desc" style="white-space:pre-line;font-size:10px;color:rgba(0,255,136,.5)">${m.desc}</div>
+      <div style="margin-top:6px">${m.tags.map(t=>`<span class="ms-tag">${t}</span>`).join(' ')}</div>`;
+    card.appendChild(info);
+    card.addEventListener('click',()=>{
+      document.querySelectorAll('.ms-card').forEach(c=>c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedMap=m.id;
+      document.getElementById('ms-confirm').classList.add('ready');
+    });
+    grid.appendChild(card);
+    // Draw thumb after DOM insert
+    requestAnimationFrame(()=>drawMapThumb(cvs,m));
+  });
+}
+
 document.getElementById('btn-start').addEventListener('click', ()=>{
   document.getElementById('scr-start').classList.add('gone');
+  buildMapSelectScreen();
+  document.getElementById('scr-map').classList.remove('gone');
+});
+
+document.getElementById('ms-confirm').addEventListener('click', ()=>{
+  if (!selectedMap) return;
+  document.getElementById('scr-map').classList.add('gone');
   buildVehicleSelectScreen();
   document.getElementById('scr-vehicle').classList.remove('gone');
 });
@@ -2534,15 +2883,12 @@ document.getElementById('btn-start').addEventListener('click', ()=>{
 document.getElementById('vs-confirm').addEventListener('click', ()=>{
   if (!selectedVehicle) return;
   document.getElementById('scr-vehicle').classList.add('gone');
-  // Stop all preview animations
   document.querySelectorAll('.vs-preview canvas').forEach(c=>{ if(c._stopAnim) c._stopAnim(); });
-  // Apply vehicle stats
   droneSettings.speedMultiplier = selectedVehicle.speedMult;
   droneState.maxMissiles = selectedVehicle.missiles;
   droneState.missiles = selectedVehicle.missiles;
   CAMERA_CFG.followDistance = selectedVehicle.camDist;
   CAMERA_CFG.followHeight = selectedVehicle.camH;
-  // Rebuild 3D model
   rebuildDroneForVehicle(selectedVehicle.id);
   document.body.classList.add('playing');
   gameOn = true; initGame();
@@ -2552,8 +2898,8 @@ function restartGame() {
   document.getElementById('scr-over').classList.add('gone');
   document.getElementById('scr-win').classList.add('gone');
   document.body.classList.remove('playing');
-  buildVehicleSelectScreen();
-  document.getElementById('scr-vehicle').classList.remove('gone');
+  buildMapSelectScreen();
+  document.getElementById('scr-map').classList.remove('gone');
 }
 document.getElementById('btn-restart').addEventListener('click', restartGame);
 document.getElementById('btn-restart2').addEventListener('click', restartGame);
