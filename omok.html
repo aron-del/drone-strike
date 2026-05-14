@@ -1,0 +1,300 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#app{font-family:var(--font-sans);max-width:440px;margin:0 auto}
+
+#setup{padding:24px 16px;display:flex;flex-direction:column;gap:20px}
+#setup h2{font-size:18px;font-weight:500;color:var(--color-text-primary);text-align:center}
+.setup-section>label{font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:8px}
+.color-row{display:flex;gap:10px}
+.color-btn{flex:1;padding:14px 10px;border:2px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);background:var(--color-background-primary);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--color-text-secondary);position:relative}
+.color-btn .stone{width:32px;height:32px;border-radius:50%}
+.stone.black{background:radial-gradient(circle at 35% 35%,#555,#111)}
+.stone.white{background:radial-gradient(circle at 35% 35%,#fff,#ccc);border:1px solid #aaa}
+.color-btn.active{border-color:#222;border-width:2.5px;background:#1a1a1a;color:#fff}
+.selected-badge{display:none;position:absolute;top:8px;right:8px;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid #222;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#222}
+.color-btn.active .selected-badge{display:flex}
+.level-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.lv-btn{padding:9px 0;border:1.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);cursor:pointer;font-size:14px;font-weight:500;color:var(--color-text-secondary);text-align:center}
+.lv-btn:hover{background:var(--color-background-secondary)}
+.lv-btn.easy{color:#1D9E75}
+.lv-btn.mid{color:#BA7517}
+.lv-btn.hard{color:#D85A30}
+.lv-btn.active.easy{border-color:#1D9E75;border-width:2px;background:#E1F5EE;color:#085041;font-weight:700}
+.lv-btn.active.mid{border-color:#BA7517;border-width:2px;background:#FAEEDA;color:#412402;font-weight:700}
+.lv-btn.active.hard{border-color:#D85A30;border-width:2px;background:#FAECE7;color:#4A1B0C;font-weight:700}
+.lv-info{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.lv-desc{font-size:12px;color:var(--color-text-secondary);min-height:16px}
+.lv-num{font-size:12px;font-weight:500;color:var(--color-text-primary)}
+#start-btn{width:100%;padding:13px;border:none;border-radius:var(--border-radius-md);background:#1a1a1a;color:#fff;font-size:15px;font-weight:500;cursor:pointer}
+#start-btn:hover{background:#333}
+
+#game{padding:10px 12px;display:none;flex-direction:column;gap:8px}
+#game-topbar{display:flex;align-items:center;justify-content:space-between}
+#turn-badge{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.sdot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
+.sdot.black{background:#1a1a1a}.sdot.white{background:#f5f5f0;border:1px solid #888}
+.tag{padding:2px 8px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);font-size:12px;color:var(--color-text-secondary)}
+#back-btn{padding:3px 10px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:12px}
+#back-btn:hover{background:var(--color-background-secondary)}
+#board-wrap{width:100%;aspect-ratio:1/1;position:relative;background:#dcb97a;border-radius:4px;border:1.5px solid #a07840;overflow:hidden}
+#cv{position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;display:block}
+#msg-area{min-height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+#msg{text-align:center;font-size:13px;font-weight:500;color:var(--color-text-primary)}
+#result-btns{display:none;flex-direction:row;gap:8px}
+#restart-btn{padding:8px 20px;border:none;border-radius:var(--border-radius-md);background:#1a1a1a;color:#fff;font-size:13px;font-weight:500;cursor:pointer}
+#restart-btn:hover{background:#333}
+#reselect-btn{padding:8px 20px;border:1.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-primary);font-size:13px;font-weight:500;cursor:pointer}
+#reselect-btn:hover{background:var(--color-background-secondary)}
+#score{display:flex;justify-content:center;gap:24px;font-size:12px;color:var(--color-text-secondary)}
+</style>
+
+<div id="app">
+<div id="setup">
+  <h2>오목</h2>
+  <div class="setup-section">
+    <label>내 돌 선택</label>
+    <div class="color-row">
+      <button class="color-btn active" id="pick-b" onclick="pickColor(1)">
+        <div class="selected-badge">✓</div>
+        <div class="stone black"></div>
+        <span>흑 (선공)</span>
+      </button>
+      <button class="color-btn" id="pick-w" onclick="pickColor(2)">
+        <div class="selected-badge">✓</div>
+        <div class="stone white"></div>
+        <span>백 (후공)</span>
+      </button>
+    </div>
+  </div>
+  <div class="setup-section">
+    <label>레벨 선택</label>
+    <div class="level-grid">
+      <button class="lv-btn easy" onclick="pickLevel(1)">1</button>
+      <button class="lv-btn easy" onclick="pickLevel(2)">2</button>
+      <button class="lv-btn easy" onclick="pickLevel(3)">3</button>
+      <button class="lv-btn mid" onclick="pickLevel(4)">4</button>
+      <button class="lv-btn mid active" onclick="pickLevel(5)">5</button>
+      <button class="lv-btn mid" onclick="pickLevel(6)">6</button>
+      <button class="lv-btn mid" onclick="pickLevel(7)">7</button>
+      <button class="lv-btn hard" onclick="pickLevel(8)">8</button>
+      <button class="lv-btn hard" onclick="pickLevel(9)">9</button>
+      <button class="lv-btn hard" onclick="pickLevel(10)">10</button>
+    </div>
+    <div class="lv-info">
+      <span class="lv-desc" id="lv-desc">보통 — 기본적인 수 읽기</span>
+      <span class="lv-num" id="lv-num">레벨 5</span>
+    </div>
+  </div>
+  <button id="start-btn" onclick="startGame()">게임 시작</button>
+</div>
+
+<div id="game">
+  <div id="game-topbar">
+    <div id="turn-badge"><div class="sdot black" id="tdot"></div><span id="ttxt">흑 차례</span></div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="tag" id="lv-tag">레벨 5</span>
+      <span class="tag" id="color-tag">흑</span>
+      <button id="back-btn" onclick="goSetup()">← 설정</button>
+    </div>
+  </div>
+  <div id="board-wrap"><canvas id="cv"></canvas></div>
+  <div id="msg-area">
+    <div id="msg"></div>
+    <div id="result-btns">
+      <button id="restart-btn" onclick="newRound()">다시 시작</button>
+      <button id="reselect-btn" onclick="goSetup()">레벨 재선택</button>
+    </div>
+  </div>
+  <div id="score">흑 <span id="sc-b">0</span>승 &nbsp;|&nbsp; 백 <span id="sc-w">0</span>승</div>
+</div>
+</div>
+
+<script>
+const GRID=15,EMPTY=0,BLACK=1,WHITE=2;
+let board,turn,gameOver,level=5,scores={b:0,w:0},thinking=false;
+let playerColor=BLACK,aiColor=WHITE;
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+const wrap=document.getElementById('board-wrap');
+let cw,ch,cellSize;
+
+const lvDescs={1:'입문 — 거의 무작위로 둡니다',2:'초급 — 가끔 실수합니다',3:'초급+ — 기초 방어',4:'중급 — 공격과 방어 시작',5:'보통 — 기본적인 수 읽기',6:'중급+ — 연속 돌을 잘 노림',7:'고급 — 2수 앞 계산',8:'상급 — 빈틈 없는 수읽기',9:'고수 — 공격적 전략',10:'최강 — 최대 탐색 깊이'};
+
+function pickLevel(n){
+  level=n;
+  document.querySelectorAll('.lv-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.lv-btn')[n-1].classList.add('active');
+  document.getElementById('lv-desc').textContent=lvDescs[n];
+  document.getElementById('lv-num').textContent='레벨 '+n;
+}
+function pickColor(c){
+  playerColor=c;aiColor=c===BLACK?WHITE:BLACK;
+  document.getElementById('pick-b').classList.toggle('active',c===BLACK);
+  document.getElementById('pick-w').classList.toggle('active',c===WHITE);
+}
+function startGame(){
+  document.getElementById('setup').style.display='none';
+  document.getElementById('game').style.display='flex';
+  document.getElementById('lv-tag').textContent='레벨 '+level;
+  document.getElementById('color-tag').textContent=playerColor===BLACK?'흑':'백';
+  scores={b:0,w:0};
+  document.getElementById('sc-b').textContent='0';
+  document.getElementById('sc-w').textContent='0';
+  setTimeout(()=>{resize();newRound();},80);
+}
+function goSetup(){
+  document.getElementById('game').style.display='none';
+  document.getElementById('setup').style.display='flex';
+}
+function newRound(){
+  document.getElementById('msg').textContent='';
+  document.getElementById('result-btns').style.display='none';
+  board=Array.from({length:GRID},()=>new Array(GRID).fill(EMPTY));
+  turn=BLACK;gameOver=false;thinking=false;
+  updateUI();draw();
+  if(turn===aiColor)setTimeout(aiMove,500);
+}
+function showResult(text){
+  gameOver=true;
+  document.getElementById('msg').textContent=text;
+  document.getElementById('result-btns').style.display='flex';
+}
+function updateUI(){
+  if(gameOver)return;
+  document.getElementById('tdot').className='sdot '+(turn===BLACK?'black':'white');
+  document.getElementById('ttxt').textContent=(turn===BLACK?'흑':'백')+' 차례'+(turn===playerColor?' (나)':' (AI)');
+}
+function resize(){
+  const rect=wrap.getBoundingClientRect();
+  cw=rect.width;ch=rect.height;
+  if(!cw||!ch)return;
+  cv.width=cw;cv.height=ch;
+  cellSize=Math.floor(Math.min(cw,ch)/(GRID+1));
+  draw();
+}
+function OX(){return(cw-cellSize*(GRID-1))/2;}
+function OY(){return(ch-cellSize*(GRID-1))/2;}
+function draw(){
+  if(!cw||!ch||!cellSize)return;
+  ctx.clearRect(0,0,cw,ch);
+  const X=OX(),Y=OY(),cs=cellSize;
+  ctx.strokeStyle='#8a6030';ctx.lineWidth=0.8;
+  for(let i=0;i<GRID;i++){
+    ctx.beginPath();ctx.moveTo(X+i*cs,Y);ctx.lineTo(X+i*cs,Y+(GRID-1)*cs);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(X,Y+i*cs);ctx.lineTo(X+(GRID-1)*cs,Y+i*cs);ctx.stroke();
+  }
+  [[3,3],[3,11],[7,7],[11,3],[11,11]].forEach(([r,c])=>{
+    ctx.fillStyle='#8a6030';ctx.beginPath();ctx.arc(X+c*cs,Y+r*cs,3,0,Math.PI*2);ctx.fill();
+  });
+  if(!board)return;
+  for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
+    if(board[r][c]===EMPTY)continue;
+    const x=X+c*cs,y=Y+r*cs,rad=cs*0.43;
+    const g=ctx.createRadialGradient(x-rad*0.3,y-rad*0.3,rad*0.05,x,y,rad);
+    if(board[r][c]===BLACK){g.addColorStop(0,'#555');g.addColorStop(1,'#111');}
+    else{g.addColorStop(0,'#fff');g.addColorStop(1,'#ccc');}
+    ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+    if(board[r][c]===WHITE){ctx.strokeStyle='#aaa';ctx.lineWidth=0.5;ctx.stroke();}
+  }
+}
+function getCell(px,py){
+  const X=OX(),Y=OY(),cs=cellSize;
+  const c=Math.round((px-X)/cs),r=Math.round((py-Y)/cs);
+  if(r<0||r>=GRID||c<0||c>=GRID)return null;
+  if(Math.abs(px-(X+c*cs))>cs*0.5||Math.abs(py-(Y+r*cs))>cs*0.5)return null;
+  return{r,c};
+}
+const DIR=[[0,1],[1,0],[1,1],[1,-1]];
+function checkWin(r,c,p){
+  for(const[dr,dc]of DIR){
+    let n=1;
+    for(let d=1;d<5;d++){const nr=r+dr*d,nc=c+dc*d;if(nr<0||nr>=GRID||nc<0||nc>=GRID||board[nr][nc]!==p)break;n++;}
+    for(let d=1;d<5;d++){const nr=r-dr*d,nc=c-dc*d;if(nr<0||nr>=GRID||nc<0||nc>=GRID||board[nr][nc]!==p)break;n++;}
+    if(n>=5)return true;
+  }
+  return false;
+}
+function lineLen(r,c,dr,dc,p,b){
+  let n=1;
+  for(let d=1;d<5;d++){const nr=r+dr*d,nc=c+dc*d;if(nr<0||nr>=GRID||nc<0||nc>=GRID||b[nr][nc]!==p)break;n++;}
+  for(let d=1;d<5;d++){const nr=r-dr*d,nc=c-dc*d;if(nr<0||nr>=GRID||nc<0||nc>=GRID||b[nr][nc]!==p)break;n++;}
+  return n;
+}
+function scoreCell(r,c,player,b){
+  if(b[r][c]!==EMPTY)return -1;
+  const opp=player===WHITE?BLACK:WHITE;
+  let sc=0;
+  b[r][c]=player;
+  for(const[dr,dc]of DIR){const l=lineLen(r,c,dr,dc,player,b);if(l>=5)sc+=1000000;else if(l===4)sc+=50000;else if(l===3)sc+=5000;else if(l===2)sc+=500;else sc+=50;}
+  b[r][c]=opp;
+  for(const[dr,dc]of DIR){const l=lineLen(r,c,dr,dc,opp,b);if(l>=5)sc+=800000;else if(l===4)sc+=40000;else if(l===3)sc+=4000;}
+  b[r][c]=EMPTY;
+  return sc;
+}
+function nearMoves(b,player){
+  const moves=[];
+  for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
+    if(b[r][c]!==EMPTY)continue;
+    let near=false;
+    for(let dr=-2;dr<=2&&!near;dr++)for(let dc=-2;dc<=2&&!near;dc++){const nr=r+dr,nc=c+dc;if(nr>=0&&nr<GRID&&nc>=0&&nc<GRID&&b[nr][nc]!==EMPTY)near=true;}
+    if(near)moves.push({r,c,sc:scoreCell(r,c,player,b)});
+  }
+  return moves;
+}
+function getBestMove(player){
+  const opp=player===BLACK?WHITE:BLACK;
+  let moves=nearMoves(board,player);
+  if(moves.length===0)return{r:7,c:7};
+  moves.sort((a,b)=>b.sc-a.sc);
+  if(level<=2){const topN=Math.max(1,Math.floor(moves.length*(1-level*0.08)));return moves[Math.floor(Math.random()*Math.min(topN,moves.length))];}
+  const depth=Math.ceil(level/2);
+  const top=moves.slice(0,depth<=3?6:4);
+  let best=null,bestSc=-Infinity;
+  for(const m of top){
+    board[m.r][m.c]=player;
+    if(checkWin(m.r,m.c,player)){board[m.r][m.c]=EMPTY;return m;}
+    const oMoves=nearMoves(board,opp);oMoves.sort((a,b)=>b.sc-a.sc);
+    const lookahead=oMoves.length>0?oMoves[0].sc:0;
+    const finalSc=m.sc-lookahead*0.7;
+    board[m.r][m.c]=EMPTY;
+    if(finalSc>bestSc){bestSc=finalSc;best=m;}
+  }
+  if(level<8&&best&&Math.random()<(8-level)*0.07){const alt=moves.slice(1,4);if(alt.length>0)return alt[Math.floor(Math.random()*alt.length)];}
+  return best||moves[0];
+}
+function aiMove(){
+  if(gameOver||thinking)return;
+  thinking=true;
+  setTimeout(()=>{
+    const move=getBestMove(aiColor);
+    board[move.r][move.c]=aiColor;draw();
+    if(checkWin(move.r,move.c,aiColor)){
+      if(aiColor===BLACK)scores.b++;else scores.w++;
+      document.getElementById('sc-b').textContent=scores.b;
+      document.getElementById('sc-w').textContent=scores.w;
+      showResult('AI('+(aiColor===BLACK?'흑':'백')+') 승리! 🤖');
+    } else {turn=playerColor;updateUI();}
+    thinking=false;
+  },150+Math.random()*250);
+}
+function handleInput(px,py){
+  if(gameOver||turn!==playerColor||thinking)return;
+  const pos=getCell(px,py);
+  if(!pos||board[pos.r][pos.c]!==EMPTY)return;
+  board[pos.r][pos.c]=playerColor;draw();
+  if(checkWin(pos.r,pos.c,playerColor)){
+    if(playerColor===BLACK)scores.b++;else scores.w++;
+    document.getElementById('sc-b').textContent=scores.b;
+    document.getElementById('sc-w').textContent=scores.w;
+    showResult('플레이어('+(playerColor===BLACK?'흑':'백')+') 승리! 🎉');
+    return;
+  }
+  turn=aiColor;updateUI();aiMove();
+}
+cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect();handleInput(e.clientX-r.left,e.clientY-r.top);});
+cv.addEventListener('touchend',e=>{e.preventDefault();const r=cv.getBoundingClientRect();const t=e.changedTouches[0];handleInput(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+const ro=new ResizeObserver(()=>setTimeout(resize,50));
+ro.observe(wrap);
+window.addEventListener('resize',()=>setTimeout(resize,50));
+</script>
